@@ -55,3 +55,16 @@ Prove frontend and backend can actually talk to each other before building any r
 - The terminal doesn't run real commands yet — no Docker, no live shell
 - No live streaming connection (Socket.IO) exists yet
 - These will be replaced the same way /health was — swap fake logic for real backend calls, phase by phase
+
+
+
+## Changes done in files 
+- In sandshell-backend
+- "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "lint": "next lint"
+  }
+- Added src/app/api/health/route.ts -------> For testing purpose only
+- Modified sandshell-frontend/src/hooks/useSession.ts
