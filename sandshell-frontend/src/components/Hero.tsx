@@ -120,7 +120,7 @@ export default function Hero({ onStart, isStarting }: HeroProps) {
 
         <div className="mt-8 flex flex-wrap items-center gap-4">
           <StartButton onClick={onStart} disabled={isStarting}>
-            {isStarting ? "Starting…" : "Start Session"}
+            {isStarting ? "Launching..." : "Launch Sandbox"}
           </StartButton>
 
           <motion.button

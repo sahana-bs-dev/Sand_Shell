@@ -21,12 +21,7 @@ export default function Navbar() {
       </Link>
 
       <div className="hidden items-center gap-8 text-sm text-muted sm:flex">
-        <a href="#how-it-works" className="transition-colors hover:text-text">
-          How it works
-        </a>
-        <a href="#features" className="transition-colors hover:text-text">
-          Docs
-        </a>
+        <a href="/">Back to home</a> 
         <ThemeToggle />
       </div>
 
