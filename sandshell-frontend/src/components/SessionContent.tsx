@@ -15,7 +15,7 @@ export default function SessionContent() {
         startSession={startSession}
         endSession={endSession}
       />
-      <Terminal active={status === "online"} />
+      {status === "online" && <Terminal active={status === "online"} />}
     </div>
   );
 }
