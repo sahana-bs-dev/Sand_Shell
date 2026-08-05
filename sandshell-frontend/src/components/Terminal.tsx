@@ -8,9 +8,10 @@ import "@xterm/xterm/css/xterm.css";
 
 interface TerminalProps {
   active: boolean;
+  sessionId: string;
 }
 
-export default function Terminal({ active }: TerminalProps) {
+export default function Terminal({ active, sessionId }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -41,6 +42,10 @@ export default function Terminal({ active }: TerminalProps) {
 
     const socket = io("http://localhost:3001");
     socketRef.current = socket;
+
+    socket.on("connect", () => {
+      socket.emit("terminal:join", sessionId);
+    });
 
     term.onData((data) => {
       socket.emit("terminal:input", data);
