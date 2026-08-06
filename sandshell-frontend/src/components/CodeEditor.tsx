@@ -25,6 +25,14 @@ export default function CodeEditor({
   const [saveStatus, setSaveStatus] = useState<"success" | "error" | null>(null);
   const editorRef = useRef(null);
 
+  useEffect(() => {
+  const handleEscape = (e: KeyboardEvent) => {
+    if (e.key === "Escape") onClose();
+  };
+  window.addEventListener("keydown", handleEscape);
+  return () => window.removeEventListener("keydown", handleEscape);
+}, [onClose]);
+
   const handleSave = async () => {
     setIsSaving(true);
     setSaveStatus(null);
@@ -113,9 +121,10 @@ export default function CodeEditor({
 
           <button
             onClick={onClose}
-            className="rounded-lg p-2 hover:bg-[#1a1a20]"
+            className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-[#1a1a20]"
           >
-            <X size={20} />
+          <X size={16} />
+          Close
           </button>
         </div>
       </div>

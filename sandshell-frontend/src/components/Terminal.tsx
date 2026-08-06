@@ -12,8 +12,7 @@ interface TerminalProps {
   onOpenEditor: (fileName: string) => void;
 }
 
-export default function Terminal({ active, sessionId }: TerminalProps) {
-  const [dimensions, setDimensions] = useState({ cols: 80, rows: 24 });
+export default function Terminal({ active, sessionId, onOpenEditor }: TerminalProps) {  const [dimensions, setDimensions] = useState({ cols: 80, rows: 24 });
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);

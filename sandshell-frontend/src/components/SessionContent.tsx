@@ -9,7 +9,9 @@ import SessionCard from "@/components/SessionCard";
 import { useSession } from "@/hooks/useSession";
 
 export default function SessionPage() {
-  const { sessionId, isActive, startSession, endSession } = useSession();
+  
+  const { sessionId, status, statusMessage, startSession, endSession } = useSession();
+   const isActive = status === "online";
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorFile, setEditorFile] = useState("");
@@ -49,30 +51,35 @@ export default function SessionPage() {
 
   if (!isActive) {
     return (
-      <SessionCard onStart={startSession} onEnd={endSession} isActive={isActive} />
+      <SessionCard
+  status={status}
+  statusMessage={statusMessage}
+  startSession={startSession}
+  endSession={endSession}
+/>
     );
   }
 
   return (
     <div className="flex h-screen bg-background">
-      <FileExplorer sessionId={sessionId} onFileClick={handleFileClick} />
+      <FileExplorer sessionId={sessionId ?? ""} onFileClick={handleFileClick} />
 
       <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-auto">
         <Terminal
-          active={isActive}
-          sessionId={sessionId}
-          onOpenEditor={handleOpenEditorFromTerminal}
-        />
+  active={isActive}
+  sessionId={sessionId ?? ""}
+  onOpenEditor={handleOpenEditorFromTerminal}
+/>
       </div>
 
       {editorOpen && (
         <CodeEditor
-          fileName={editorFile}
-          initialContent={editorContent}
-          sessionId={sessionId}
-          onClose={() => setEditorOpen(false)}
-          onRun={handleRun}
-        />
+  fileName={editorFile}
+  initialContent={editorContent}
+  sessionId={sessionId ?? ""}
+  onClose={() => setEditorOpen(false)}
+  onRun={handleRun}
+/>
       )}
     </div>
   );

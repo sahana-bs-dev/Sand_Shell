@@ -3,6 +3,8 @@ import { PassThrough } from "stream";
 import { getContainerId } from "@/lib/sessionStore";
 import { docker } from "@/lib/docker";
 
+import { Readable } from "stream";
+
 export async function POST(req: NextRequest) {
   try {
     const { sessionId, fileName, content } = await req.json();
@@ -17,38 +19,11 @@ export async function POST(req: NextRequest) {
 
     const container = docker.getContainer(containerId);
 
-    // Write file to container using exec with heredoc
-    const exec = await container.exec({
-      Cmd: [
-        "sh",
-        "-c",
-        `cat > "${fileName}" << 'EOF'\n${content}\nEOF`,
-      ],
-      AttachStdin: true,
-      AttachStdout: true,
-      AttachStderr: true,
-    });
+    // Use Docker's putArchive to write file directly
+    // This is more reliable than shell commands
+    const tarStream = createSimpleTarArchive(fileName, content);
 
-    const stream = await exec.start({ stdin: true });
-
-    // A Node Readable stream only starts flowing (and only fires 'end')
-    // once something consumes it — attaching this listener is required,
-    // not optional, or the promise below can hang forever on save.
-    let stderrOutput = "";
-    const stdoutStream = new PassThrough();
-    const stderrStream = new PassThrough();
-    stderrStream.on("data", (chunk: Buffer) => (stderrOutput += chunk.toString()));
-    docker.modem.demuxStream(stream, stdoutStream, stderrStream);
-
-    // Wait for the exec to finish
-    await new Promise((resolve, reject) => {
-      stream.on("end", resolve);
-      stream.on("error", reject);
-    });
-
-    if (stderrOutput) {
-      console.error(`[editor] save stderr for ${fileName}:`, stderrOutput);
-    }
+    await container.putArchive(tarStream, { path: "/" });
 
     console.log(`[editor] saved file ${fileName} in container ${containerId}`);
 
@@ -60,4 +35,43 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function createSimpleTarArchive(fileName: string, content: string): Readable {
+  const tarHeader = Buffer.alloc(512);
+  const contentBuffer = Buffer.from(content);
+  const contentSize = contentBuffer.length;
+
+  // Build tar header (simplified)
+  const nameBuffer = Buffer.from(fileName);
+  nameBuffer.copy(tarHeader, 0);
+  
+  // File size in octal (offset 124, 12 bytes)
+  const sizeOctal = contentSize.toString(8).padStart(11, "0") + "\0";
+  Buffer.from(sizeOctal).copy(tarHeader, 124);
+
+  // Mode (offset 100, 8 bytes)
+  Buffer.from("0000644\0").copy(tarHeader, 100);
+
+  // Type flag (offset 156) - '0' for regular file
+  tarHeader[156] = 48;
+
+  // Checksum calculation
+  let checksum = 0;
+  for (let i = 0; i < 512; i++) {
+    if (i >= 148 && i < 156) {
+      checksum += 32; // space character for checksum field
+    } else {
+      checksum += tarHeader[i];
+    }
+  }
+  const checksumOctal = checksum.toString(8).padStart(6, "0") + "\0 ";
+  Buffer.from(checksumOctal).copy(tarHeader, 148);
+
+  // Padding after content
+  const paddingSize = 512 - (contentSize % 512);
+  const padding = Buffer.alloc(paddingSize);
+  const endMarker = Buffer.alloc(1024); // Two zero blocks to mark end of tar
+
+  return Readable.from([tarHeader, contentBuffer, padding, endMarker]);
 }
