@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PassThrough } from "stream";
 import { getContainerId } from "@/lib/sessionStore";
 import { docker } from "@/lib/docker";
 
@@ -30,11 +31,24 @@ export async function POST(req: NextRequest) {
 
     const stream = await exec.start({ stdin: true });
 
+    // A Node Readable stream only starts flowing (and only fires 'end')
+    // once something consumes it — attaching this listener is required,
+    // not optional, or the promise below can hang forever on save.
+    let stderrOutput = "";
+    const stdoutStream = new PassThrough();
+    const stderrStream = new PassThrough();
+    stderrStream.on("data", (chunk: Buffer) => (stderrOutput += chunk.toString()));
+    docker.modem.demuxStream(stream, stdoutStream, stderrStream);
+
     // Wait for the exec to finish
     await new Promise((resolve, reject) => {
       stream.on("end", resolve);
       stream.on("error", reject);
     });
+
+    if (stderrOutput) {
+      console.error(`[editor] save stderr for ${fileName}:`, stderrOutput);
+    }
 
     console.log(`[editor] saved file ${fileName} in container ${containerId}`);
 

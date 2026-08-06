@@ -52,22 +52,28 @@ export default function CodeEditor({
   };
 
   const handleRun = async () => {
-    // Determine how to run based on file extension
+    // fileName here is the full absolute path (e.g. /root/gedit.c), since
+    // FileExplorer passes node.path, not just the basename. Build commands
+    // with that absolute path directly — don't prepend "./", which turns
+    // "/root/gedit" into the broken relative path ".//root/gedit".
     const ext = fileName.split(".").pop()?.toLowerCase();
     let command = "";
 
     if (ext === "c") {
-      const baseName = fileName.replace(".c", "");
-      command = `gcc ${fileName} -o ${baseName} && ./${baseName}`;
+      const outputPath = fileName.replace(/\.c$/, "");
+      command = `gcc "${fileName}" -o "${outputPath}" && "${outputPath}"`;
+    } else if (ext === "cpp") {
+      const outputPath = fileName.replace(/\.cpp$/, "");
+      command = `g++ "${fileName}" -o "${outputPath}" && "${outputPath}"`;
     } else if (ext === "py") {
-      command = `python3 ${fileName}`;
+      command = `python3 "${fileName}"`;
     } else if (ext === "js") {
-      command = `node ${fileName}`;
+      command = `node "${fileName}"`;
     } else if (ext === "sh") {
-      command = `bash ${fileName}`;
+      command = `bash "${fileName}"`;
     } else {
-      // Default: try to execute directly
-      command = `./${fileName}`;
+      // Default: try to execute the file directly (already absolute)
+      command = `"${fileName}"`;
     }
 
     onRun(command);

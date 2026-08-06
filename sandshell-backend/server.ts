@@ -147,6 +147,7 @@ app.prepare().then(() => {
           AttachStdout: true,
           AttachStderr: true,
           Tty: true,
+          WorkingDir: "/root",
         });
 
         const stream = await exec.start({ hijack: true, stdin: true });

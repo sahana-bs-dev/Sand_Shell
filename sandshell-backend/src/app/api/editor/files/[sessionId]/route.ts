@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PassThrough } from "stream";
 import { getContainerId } from "@/lib/sessionStore";
 import { docker } from "@/lib/docker";
 
@@ -27,7 +28,7 @@ export async function GET(
     const container = docker.getContainer(containerId);
 
     // Use `find` to get all files/directories up to 3 levels deep in /root
-    const exec = await container.exec({
+   const exec = await container.exec({
       Cmd: [
         "sh",
         "-c",
@@ -35,25 +36,41 @@ export async function GET(
       ],
       AttachStdout: true,
       AttachStderr: true,
+      Tty: true,               // <-- ADD this line
     });
 
-    const stream = await exec.start({ stdin: false });
-    let output = "";
+    const stream = await exec.start({ stdin: false, hijack: true });   // <-- ADD hijack: true
+    let stdout = "";
+    let stderr = "";
 
-    stream.on("data", (chunk: Buffer) => {
-      output += chunk.toString();
-    });
+    // exec was started without Tty:true, so Docker multiplexes stdout and
+    // stderr into a single stream, each chunk prefixed with an 8-byte frame
+    // header (1 byte stream type, 3 reserved, 4-byte big-endian length).
+    // container.modem.demuxStream splits that back into separate streams —
+    // reading the raw stream directly (as before) mixes binary header bytes
+    // into the text and breaks line parsing below.
+    const stdoutStream = new PassThrough();
+    const stderrStream = new PassThrough();
+    stdoutStream.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+    stderrStream.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+    docker.modem.demuxStream(stream, stdoutStream, stderrStream);
 
     await new Promise<void>((resolve, reject) => {
       stream.on("end", () => resolve());
       stream.on("error", reject);
     });
 
-    // Parse output into tree structure
-    const lines = output
+    if (stderr) {
+      console.error(`[editor] find stderr for container ${containerId}:`, stderr);
+    }
+
+    // Parse output into tree structure, skipping the "/root" line itself
+    // (find lists the starting path too — we only want what's inside it)
+    const lines = stdout
       .trim()
       .split("\n")
-      .filter((line) => line.length > 0);
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && line !== "/root");
     const files = buildFileTree(lines);
 
     console.log(

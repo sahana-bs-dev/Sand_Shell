@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 export async function POST() {
   try {
     const container = await docker.createContainer({
-      Image: 'ubuntu',
+      Image: 'sandshell-ubuntu',
       Tty: true,
       Cmd: ['tail', '-f', '/dev/null'], // keeps container alive, idle
     });
