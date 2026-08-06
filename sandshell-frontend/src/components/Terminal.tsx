@@ -42,6 +42,7 @@ export default function Terminal({ active, sessionId }: TerminalProps) {
     term.write("SandShell terminal ready.\r\n");
 
     const socket = io("http://localhost:3001");
+    (window as any).__terminal = socket;
     socketRef.current = socket;
 
     socket.on("connect", () => {
