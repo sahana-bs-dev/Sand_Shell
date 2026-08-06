@@ -61,6 +61,7 @@ export function useSession() {
   return {
     status,
     statusMessage: STATUS_MESSAGE[status],
+    sessionId,
     startSession,
     endSession,
   };

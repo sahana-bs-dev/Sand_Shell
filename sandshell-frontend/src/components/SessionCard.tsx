@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { SquareTerminal } from "lucide-react";
 import StartButton from "./StartButton";
 import EndButton from "./EndButton";
+import ConfirmExitModal from "./ConfirmExitModal";
 import type { SessionStatus } from "@/types/session";
 
 const BADGE_STYLES = {
@@ -31,6 +33,17 @@ export default function SessionCard({
   startSession,
   endSession,
 }: SessionCardProps) {
+  const [showConfirmExit, setShowConfirmExit] = useState(false);
+
+  const handleEndSessionClick = () => {
+    setShowConfirmExit(true);
+  };
+
+  const handleConfirmExit = () => {
+    setShowConfirmExit(false);
+    endSession();
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 24 }}
@@ -75,7 +88,7 @@ export default function SessionCard({
         />
         <EndButton
           className="flex-1"
-          onClick={endSession}
+          onClick={handleEndSessionClick}
           disabled={status === "offline"}
         />
       </div>
@@ -83,6 +96,17 @@ export default function SessionCard({
       <p className="mt-5 text-center font-mono text-[12px] text-muted">
         {statusMessage}
       </p>
+
+      {/* Exit Confirmation Modal */}
+      <ConfirmExitModal
+        isOpen={showConfirmExit}
+        onConfirm={handleConfirmExit}
+        onCancel={() => setShowConfirmExit(false)}
+        title="End Session?"
+        message="Your SandShell terminal session will be closed and the container will be destroyed. This action cannot be undone."
+        confirmText="End Session"
+        cancelText="Cancel"
+      />
     </motion.div>
   );
 }
