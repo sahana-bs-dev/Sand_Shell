@@ -9,14 +9,14 @@ export function middleware(request: NextRequest) {
   if (request.method === 'OPTIONS') {
     const preflightResponse = new NextResponse(null, { status: 200 });
     preflightResponse.headers.set('Access-Control-Allow-Origin', 'http://localhost:3000');
-    preflightResponse.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    preflightResponse.headers.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     preflightResponse.headers.set('Access-Control-Allow-Headers', 'Content-Type');
     return preflightResponse;
   }
 
   const response = NextResponse.next();
   response.headers.set('Access-Control-Allow-Origin', 'http://localhost:3000');
-  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   response.headers.set('Access-Control-Allow-Headers', 'Content-Type');
   return response;
 }

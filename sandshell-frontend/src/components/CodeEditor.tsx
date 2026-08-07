@@ -1,51 +1,59 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Editor from "@monaco-editor/react";
-import { X, Save, Play } from "lucide-react";
+import { X, Save, Play, ArrowLeft } from "lucide-react";
 import axios from "axios";
+import type { EditorTab } from "@/types/session";
 
 interface CodeEditorProps {
-  fileName: string;
-  initialContent: string;
+  tabs: EditorTab[];
+  activeTabId: string | null;
   sessionId: string;
-  onClose: () => void;
+  onSelectTab: (id: string) => void;
+  onCloseTab: (id: string) => void;
+  onContentChange: (id: string, content: string) => void;
   onRun: (command: string) => void;
+  onBackToTerminal: () => void;
 }
 
 export default function CodeEditor({
-  fileName,
-  initialContent,
+  tabs,
+  activeTabId,
   sessionId,
-  onClose,
+  onSelectTab,
+  onCloseTab,
+  onContentChange,
   onRun,
+  onBackToTerminal,
 }: CodeEditorProps) {
-  const [content, setContent] = useState(initialContent);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"success" | "error" | null>(null);
-  const editorRef = useRef(null);
 
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+
+  // Esc goes back to the terminal — it does NOT close any tabs, so
+  // whatever files you had open stay open in the background.
   useEffect(() => {
-  const handleEscape = (e: KeyboardEvent) => {
-    if (e.key === "Escape") onClose();
-  };
-  window.addEventListener("keydown", handleEscape);
-  return () => window.removeEventListener("keydown", handleEscape);
-}, [onClose]);
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onBackToTerminal();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [onBackToTerminal]);
+
+  if (!activeTab) return null;
 
   const handleSave = async () => {
     setIsSaving(true);
     setSaveStatus(null);
 
     try {
-      const response = await axios.post(
-        "http://localhost:3001/api/editor/save",
-        {
-          sessionId,
-          fileName,
-          content,
-        }
-      );
+      const response = await axios.post("http://localhost:3001/api/editor/save", {
+        sessionId,
+        fileName: activeTab.fileName,
+        content: activeTab.content,
+      });
 
       if (response.data.success) {
         setSaveStatus("success");
@@ -59,11 +67,8 @@ export default function CodeEditor({
     }
   };
 
-  const handleRun = async () => {
-    // fileName here is the full absolute path (e.g. /root/gedit.c), since
-    // FileExplorer passes node.path, not just the basename. Build commands
-    // with that absolute path directly — don't prepend "./", which turns
-    // "/root/gedit" into the broken relative path ".//root/gedit".
+  const handleRun = () => {
+    const fileName = activeTab.fileName;
     const ext = fileName.split(".").pop()?.toLowerCase();
     let command = "";
 
@@ -80,7 +85,6 @@ export default function CodeEditor({
     } else if (ext === "sh") {
       command = `bash "${fileName}"`;
     } else {
-      // Default: try to execute the file directly (already absolute)
       command = `"${fileName}"`;
     }
 
@@ -88,11 +92,44 @@ export default function CodeEditor({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/50">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border bg-[#111116] px-6 py-4">
+    <div className="flex h-full w-full flex-col bg-[#0a0a0f]">
+      {/* Tab strip */}
+      <div className="flex items-center gap-1 border-b border-border bg-[#111116] px-3 pt-2">
+        <div className="flex flex-1 items-end gap-1 overflow-x-auto">
+          {tabs.map((tab) => (
+            <div
+              key={tab.id}
+              onClick={() => onSelectTab(tab.id)}
+              className={`flex cursor-pointer items-center gap-2 rounded-t-lg px-3 py-2 text-sm ${
+                tab.id === activeTabId
+                  ? "bg-[#1a1a20] text-white"
+                  : "text-muted hover:bg-[#16161c]"
+              }`}
+            >
+              <span className="max-w-[140px] truncate">
+                {tab.fileName.split("/").pop()}
+              </span>
+              {tab.isDirty && (
+                <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCloseTab(tab.id);
+                }}
+                className="rounded p-0.5 hover:bg-white/10"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Active file header */}
+      <div className="flex items-center justify-between border-b border-border bg-[#111116] px-6 py-3">
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold">{fileName}</h2>
+          <h2 className="text-sm font-semibold">{activeTab.fileName}</h2>
           {saveStatus === "success" && (
             <span className="text-sm text-green-400">✓ Saved</span>
           )}
@@ -102,6 +139,15 @@ export default function CodeEditor({
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={onBackToTerminal}
+            className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:bg-[#1a1a20] hover:text-white"
+            title="Back to terminal (Esc)"
+          >
+            <ArrowLeft size={16} />
+            Terminal
+          </button>
+
           <button
             onClick={handleSave}
             disabled={isSaving}
@@ -118,23 +164,16 @@ export default function CodeEditor({
             <Play size={16} />
             Run
           </button>
-
-          <button
-            onClick={onClose}
-            className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-[#1a1a20]"
-          >
-          <X size={16} />
-          Close
-          </button>
         </div>
       </div>
 
       {/* Editor */}
       <div className="flex-1 overflow-hidden">
         <Editor
-          defaultLanguage={getLanguage(fileName)}
-          value={content}
-          onChange={(value) => setContent(value || "")}
+          key={activeTab.id}
+          defaultLanguage={getLanguage(activeTab.fileName)}
+          value={activeTab.content}
+          onChange={(value) => onContentChange(activeTab.id, value || "")}
           theme="vs-dark"
           options={{
             minimap: { enabled: false },
