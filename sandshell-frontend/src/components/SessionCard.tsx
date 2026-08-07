@@ -25,6 +25,8 @@ interface SessionCardProps {
   statusMessage: string;
   startSession: () => void;
   endSession: () => void;
+  canResume?: boolean;
+  onResume?: () => void;
 }
 
 export default function SessionCard({
@@ -32,6 +34,8 @@ export default function SessionCard({
   statusMessage,
   startSession,
   endSession,
+  canResume = false,
+  onResume,
 }: SessionCardProps) {
   const [showConfirmExit, setShowConfirmExit] = useState(false);
 
@@ -81,16 +85,35 @@ export default function SessionCard({
       </div>
 
       <div className="mt-7 flex gap-3">
-        <StartButton
-          className="flex-1"
-          onClick={startSession}
-          disabled={status !== "offline"}
-        />
-        <EndButton
-          className="flex-1"
-          onClick={handleEndSessionClick}
-          disabled={status === "offline"}
-        />
+        {/* MODIFIED: Show Resume + End buttons when session is active and user went back */}
+        {canResume && status !== "offline" ? (
+          <>
+            <button
+              onClick={onResume}
+              className="flex-1 rounded-lg bg-accent-blue px-4 py-2 font-medium text-text transition-all hover:shadow-lg hover:shadow-accent-blue/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              ▶ Resume
+            </button>
+            <EndButton
+              className="flex-1"
+              onClick={handleEndSessionClick}
+              disabled={false}
+            />
+          </>
+        ) : (
+          <>
+            <StartButton
+              className="flex-1"
+              onClick={startSession}
+              disabled={status !== "offline"}
+            />
+            <EndButton
+              className="flex-1"
+              onClick={handleEndSessionClick}
+              disabled={status === "offline"}
+            />
+          </>
+        )}
       </div>
 
       <p className="mt-5 text-center font-mono text-[12px] text-muted">

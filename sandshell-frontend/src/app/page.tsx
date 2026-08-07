@@ -17,9 +17,7 @@ import Hero from "@/components/Hero";
 import FeatureCard from "@/components/FeatureCard";
 import Footer from "@/components/Footer";
 import LoadingScreen from "@/components/LoadingScreen";
-
-// Matches the duration LoadingScreen animates its progress bar for.
-const SESSION_CREATE_DELAY_MS = 5000;
+import { useSessionContext } from "@/context/SessionContext";
 
 const FEATURES = [
   {
@@ -80,17 +78,21 @@ function StepArrow({ index }: { index: number }) {
 
 export default function Home() {
   const router = useRouter();
+  const { startSession } = useSessionContext();
   const [isStarting, setIsStarting] = useState(false);
 
-  function handleStart() {
+  async function handleStart() {
     if (isStarting) return;
     setIsStarting(true);
 
-    // No backend yet — this is a mock delay standing in for the future
-    // POST /session/start call. Swap this for a real API call later.
-    setTimeout(() => {
+    const success = await startSession();
+
+    if (success) {
       router.push("/session");
-    }, SESSION_CREATE_DELAY_MS);
+    } else {
+      // Backend didn't come up — stop the loading screen and let them retry.
+      setIsStarting(false);
+    }
   }
 
   return (

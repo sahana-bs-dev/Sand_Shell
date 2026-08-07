@@ -19,6 +19,10 @@ const REAPER_INTERVAL_MS = 60 * 1000; // check once a minute
 // must never remove one of these, no matter how old its lastActiveAt is.
 const connectedSessions = new Set<string>();
 
+// Map to track socket connections by sessionId
+// This allows us to force-disconnect sockets when a session ends
+const sessionSockets = new Map<string, Set<any>>();
+
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
 const port = 3001;
@@ -55,6 +59,28 @@ function demuxDockerStream(
   });
 }
 
+// NEW: Function to disconnect all sockets for a session
+function disconnectSessionSockets(sessionId: string) {
+  const sockets = sessionSockets.get(sessionId);
+  if (sockets && sockets.size > 0) {
+    console.log(
+      `[socket] Force-disconnecting ${sockets.size} socket(s) for session ${sessionId}`
+    );
+    for (const socket of sockets) {
+      socket.disconnect(true);
+      console.log(`[socket] Disconnected socket ${socket.id}`);
+    }
+    sessionSockets.delete(sessionId);
+  }
+}
+
+// NEW: Export function for route to call
+export function endSessionCleanup(sessionId: string) {
+  console.log(`[server] Cleaning up sockets for session ${sessionId}`);
+  disconnectSessionSockets(sessionId);
+  connectedSessions.delete(sessionId);
+}
+
 // Finds sessions whose lastActiveAt is older than IDLE_TIMEOUT_MS and
 // have no currently connected socket, and destroys their containers.
 // This is what actually closes the gap the beforeunload popup doesn't:
@@ -69,8 +95,14 @@ async function reapIdleSessions() {
 
     try {
       const container = docker.getContainer(containerId);
-      await container.stop();
-      await container.remove();
+      try {
+        await container.stop();
+        console.log(`[reaper] stopped container ${containerId}`);
+      } catch (stopError) {
+        console.warn(`[reaper] stop failed (continuing): ${stopError}`);
+      }
+      // FIX: Add force: true flag
+      await container.remove({ force: true });
       console.log(
         `[reaper] removed idle session ${sessionId} (container ${containerId})`
       );
@@ -104,6 +136,12 @@ app.prepare().then(() => {
     },
   });
 
+  // NEW: Create an endpoint for the route to call
+  // The route will call this to clean up sockets when End Session is clicked
+  (global as any).__socketServer = {
+    disconnectSession: endSessionCleanup,
+  };
+
   // Resolve socket -> sessionId -> containerId, open a persistent shell,
   // then forward real browser keystrokes into it.
   io.on("connection", (socket) => {
@@ -130,6 +168,13 @@ app.prepare().then(() => {
       currentSessionId = sessionId;
       currentContainerId = containerId;
       connectedSessions.add(sessionId);
+      
+      // NEW: Track this socket in the sessionSockets map
+      if (!sessionSockets.has(sessionId)) {
+        sessionSockets.set(sessionId, new Set());
+      }
+      sessionSockets.get(sessionId)!.add(socket);
+      
       touchSession(sessionId);
 
       console.log(
@@ -147,6 +192,7 @@ app.prepare().then(() => {
           AttachStdout: true,
           AttachStderr: true,
           Tty: true,
+          WorkingDir: "/root",
         });
 
         const stream = await exec.start({ hijack: true, stdin: true });
@@ -235,6 +281,15 @@ app.prepare().then(() => {
       if (currentSessionId) {
         connectedSessions.delete(currentSessionId);
         touchSession(currentSessionId);
+        
+        // NEW: Remove socket from sessionSockets map
+        const sockets = sessionSockets.get(currentSessionId);
+        if (sockets) {
+          sockets.delete(socket);
+          if (sockets.size === 0) {
+            sessionSockets.delete(currentSessionId);
+          }
+        }
       }
 
       // Note: Container persists until explicitly ended via the END SESSION button

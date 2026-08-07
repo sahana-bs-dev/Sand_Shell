@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { createContext, useCallback, useContext, useState } from "react";
+import type { ReactNode } from "react";
 import type { SessionStatus } from "@/types/session";
 
 const STATUS_MESSAGE: Record<SessionStatus, string> = {
@@ -10,12 +11,22 @@ const STATUS_MESSAGE: Record<SessionStatus, string> = {
   ending: "Please wait, ending your session...",
 };
 
-export function useSession() {
+interface SessionContextValue {
+  status: SessionStatus;
+  statusMessage: string;
+  sessionId: string | null;
+  startSession: () => Promise<boolean>;
+  endSession: () => Promise<void>;
+}
+
+const SessionContext = createContext<SessionContextValue | null>(null);
+
+export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>("offline");
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   const startSession = useCallback(async () => {
-    if (status !== "offline") return;
+    if (status !== "offline") return status === "online";
     setStatus("connecting");
 
     try {
@@ -27,12 +38,15 @@ export function useSession() {
       if (data.status === "ok") {
         setSessionId(data.sessionId);
         setStatus("online");
-      } else {
-        setStatus("offline");
+        return true;
       }
+
+      setStatus("offline");
+      return false;
     } catch (error) {
       console.error("Failed to start session:", error);
       setStatus("offline");
+      return false;
     }
   }, [status]);
 
@@ -58,11 +72,25 @@ export function useSession() {
     }
   }, [sessionId]);
 
-  return {
-    status,
-    statusMessage: STATUS_MESSAGE[status],
-    sessionId,
-    startSession,
-    endSession,
-  };
+  return (
+    <SessionContext.Provider
+      value={{
+        status,
+        statusMessage: STATUS_MESSAGE[status],
+        sessionId,
+        startSession,
+        endSession,
+      }}
+    >
+      {children}
+    </SessionContext.Provider>
+  );
+}
+
+export function useSessionContext() {
+  const ctx = useContext(SessionContext);
+  if (!ctx) {
+    throw new Error("useSessionContext must be used within a SessionProvider");
+  }
+  return ctx;
 }

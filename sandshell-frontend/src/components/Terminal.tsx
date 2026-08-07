@@ -9,14 +9,15 @@ import "@xterm/xterm/css/xterm.css";
 interface TerminalProps {
   active: boolean;
   sessionId: string;
+  onOpenEditor: (fileName: string) => void;
 }
 
-export default function Terminal({ active, sessionId }: TerminalProps) {
-  const [dimensions, setDimensions] = useState({ cols: 80, rows: 24 });
+export default function Terminal({ active, sessionId, onOpenEditor }: TerminalProps) {  const [dimensions, setDimensions] = useState({ cols: 80, rows: 24 });
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const lineBufferRef = useRef("");
 
   useEffect(() => {
     if (!containerRef.current || xtermRef.current) return;
@@ -35,6 +36,7 @@ export default function Terminal({ active, sessionId }: TerminalProps) {
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
     fitAddon.fit();
+    term.focus();
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -42,6 +44,7 @@ export default function Terminal({ active, sessionId }: TerminalProps) {
     term.write("SandShell terminal ready.\r\n");
 
     const socket = io("http://localhost:3001");
+    (window as any).__terminal = socket;
     socketRef.current = socket;
 
     socket.on("connect", () => {
@@ -52,7 +55,46 @@ export default function Terminal({ active, sessionId }: TerminalProps) {
     });
 
     term.onData((data) => {
-      socket.emit("terminal:input", data);
+      for (const ch of data) {
+        if (ch === "\r") {
+          // Enter was pressed — check what the user just typed
+          const trimmed = lineBufferRef.current.trim();
+          const match = trimmed.match(/^(?:gedit|nano|vim|vi)\s+(\S+)/);
+
+          if (match) {
+  const rawFileName = match[1];
+  // Files always live under /root — same convention FileExplorer
+  // uses. Without this, a relative name like "me.c" gets saved
+  // to "/" in the container instead of "/root", so it never
+  // shows up in the terminal's cwd.
+  const fileName = rawFileName.startsWith("/")
+    ? rawFileName
+    : `/root/${rawFileName}`;
+            // "gedit foo.c" was already echoed char-by-char to the
+            // container's shell, but it hasn't pressed Enter yet.
+            // Send Ctrl+U to clear that pending line inside the shell,
+            // instead of sending the \r (which would try to actually
+            // run a nonexistent `gedit` binary in the container).
+            socket.emit("terminal:input", "\u0015");
+            term.write("\r\n");
+            onOpenEditor(fileName);
+            lineBufferRef.current = "";
+            continue; // don't forward this \r
+          }
+
+          lineBufferRef.current = "";
+        } else if (ch === "\u007f" || ch === "\b") {
+          // backspace
+          lineBufferRef.current = lineBufferRef.current.slice(0, -1);
+        } else if (ch === "\u0003") {
+          // Ctrl+C — reset our tracked line too
+          lineBufferRef.current = "";
+        } else if (ch >= " " || ch === "\t") {
+          lineBufferRef.current += ch;
+        }
+
+        socket.emit("terminal:input", ch);
+      }
     });
 
     socket.on("terminal:output", (data: string) => {
@@ -106,6 +148,7 @@ export default function Terminal({ active, sessionId }: TerminalProps) {
   useEffect(() => {
     if (active && fitAddonRef.current) {
       fitAddonRef.current.fit();
+      xtermRef.current?.focus();
     }
   }, [active]);
 
