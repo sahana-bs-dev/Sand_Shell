@@ -62,7 +62,14 @@ export default function Terminal({ active, sessionId, onOpenEditor }: TerminalPr
           const match = trimmed.match(/^(?:gedit|nano|vim|vi)\s+(\S+)/);
 
           if (match) {
-            const fileName = match[1];
+  const rawFileName = match[1];
+  // Files always live under /root — same convention FileExplorer
+  // uses. Without this, a relative name like "me.c" gets saved
+  // to "/" in the container instead of "/root", so it never
+  // shows up in the terminal's cwd.
+  const fileName = rawFileName.startsWith("/")
+    ? rawFileName
+    : `/root/${rawFileName}`;
             // "gedit foo.c" was already echoed char-by-char to the
             // container's shell, but it hasn't pressed Enter yet.
             // Send Ctrl+U to clear that pending line inside the shell,
