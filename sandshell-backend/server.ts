@@ -183,7 +183,7 @@ app.prepare().then(() => {
 
       // Open a persistent interactive shell (/bin/bash) inside this
       // container. AttachStdin: true gives us a duplex stream we keep
-      // writing to for the lifetime of this socket.
+    
       try {
         const container = docker.getContainer(containerId);
         exec = await container.exec({

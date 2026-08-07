@@ -32,7 +32,6 @@ export default function SessionPage() {
   // from the previous session are stale: they point at files inside a
   // container that no longer exists. Wipe them so the next session
   // always starts clean, whether it ended via the End Session button
-  // or via the backend's idle reaper.
   useEffect(() => {
     setTabs([]);
     setActiveTabId(null);
