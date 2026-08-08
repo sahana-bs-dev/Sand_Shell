@@ -1,204 +1,171 @@
 "use client";
 
-import {
-  KeyboardEvent,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { SquareTerminal } from "lucide-react";
-import { cn } from "@/utils/cn";
-
-interface Line {
-  id: number;
-  type: "input" | "output";
-  text: string;
-}
-
-let idCounter = 0;
-function nextId() {
-  idCounter += 1;
-  return idCounter;
-}
-
-const PROMPT = "guest@sandshell:~$";
-
-const WELCOME_LINES = [
-  "SandShell v1.0 — Ubuntu 22.04 LTS (mock shell)",
-  "Type 'help' to see available commands.",
-];
-
-/**
- * Canned command handler. Purely local/visual — no execution happens.
- * Replace this with a real PTY/websocket bridge once the backend is
- * wired up; the rest of the component (history, scrollback, input)
- * can stay as-is.
- */
-function runCommand(raw: string): string[] {
-  const trimmed = raw.trim();
-  const [cmd, ...rest] = trimmed.split(/\s+/);
-  const args = rest.join(" ");
-
-  switch (cmd) {
-    case "":
-      return [];
-    case "help":
-      return [
-        "Available commands:",
-        "  help        show this message",
-        "  whoami      print the current user",
-        "  pwd         print working directory",
-        "  ls          list directory contents",
-        "  date        show the current date/time",
-        "  uptime      show mock session uptime",
-        "  echo <msg>  print a message back",
-        "  clear       clear the terminal",
-      ];
-    case "whoami":
-      return ["guest"];
-    case "pwd":
-      return ["/home/guest"];
-    case "ls":
-      return ["Desktop  Documents  Downloads  README.md"];
-    case "date":
-      return [new Date().toString()];
-    case "uptime":
-      return ["up 0 min, 1 user, load average: 0.00, 0.00, 0.00 (mock)"];
-    case "echo":
-      return [args || ""];
-    case "clear":
-      return ["__CLEAR__"];
-    default:
-      return [`command not found: ${cmd}`];
-  }
-}
+import { useEffect, useRef, useState } from "react";
+import { Terminal as XTerm } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { io, Socket } from "socket.io-client";
+import "@xterm/xterm/css/xterm.css";
 
 interface TerminalProps {
-  /** Whether the session is "online" — controls the disabled overlay. */
   active: boolean;
+  sessionId: string;
+  onOpenEditor: (fileName: string) => void;
 }
 
-export default function Terminal({ active }: TerminalProps) {
-  const [lines, setLines] = useState<Line[]>(
-    WELCOME_LINES.map((text) => ({ id: nextId(), type: "output", text }))
-  );
-  const [input, setInput] = useState("");
-  const [history, setHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
-
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+export default function Terminal({ active, sessionId, onOpenEditor }: TerminalProps) {  const [dimensions, setDimensions] = useState({ cols: 80, rows: 24 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<XTerm | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const lineBufferRef = useRef("");
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [lines]);
+    if (!containerRef.current || xtermRef.current) return;
 
-  function submit() {
-    const value = input;
-    const echoLine: Line = { id: nextId(), type: "input", text: value };
-    const output = runCommand(value);
+    const term = new XTerm({
+      cursorBlink: true,
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 14,
+      theme: {
+        background: "#0a0a0f",
+        foreground: "#e5e5e5",
+      },
+    });
 
-    if (output[0] === "__CLEAR__") {
-      setLines([]);
-    } else {
-      setLines((prev) => [
-        ...prev,
-        echoLine,
-        ...output.map((text) => ({ id: nextId(), type: "output" as const, text })),
-      ]);
-    }
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(containerRef.current);
+    fitAddon.fit();
+    term.focus();
 
-    if (value.trim()) {
-      setHistory((prev) => [...prev, value]);
-    }
-    setHistoryIndex(null);
-    setInput("");
-  }
+    xtermRef.current = term;
+    fitAddonRef.current = fitAddon;
 
-  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
-      submit();
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      if (history.length === 0) return;
-      const nextIndex =
-        historyIndex === null
-          ? history.length - 1
-          : Math.max(0, historyIndex - 1);
-      setHistoryIndex(nextIndex);
-      setInput(history[nextIndex]);
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      if (historyIndex === null) return;
-      const nextIndex = historyIndex + 1;
-      if (nextIndex >= history.length) {
-        setHistoryIndex(null);
-        setInput("");
-      } else {
-        setHistoryIndex(nextIndex);
-        setInput(history[nextIndex]);
+    term.write("SandShell terminal ready.\r\n");
+
+    const socket = io("http://localhost:3001");
+    (window as any).__terminal = socket;
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      socket.emit("terminal:join", sessionId);
+      // Also send initial dimensions
+      const { cols, rows } = term;
+      socket.emit("terminal:resize", { cols, rows });
+    });
+
+    term.onData((data) => {
+      for (const ch of data) {
+        if (ch === "\r") {
+          // Enter was pressed — check what the user just typed
+          const trimmed = lineBufferRef.current.trim();
+          const match = trimmed.match(/^(?:gedit|nano|vim|vi)\s+(\S+)/);
+
+          if (match) {
+  const rawFileName = match[1];
+  // Files always live under /root — same convention FileExplorer
+  // uses. Without this, a relative name like "me.c" gets saved
+  // to "/" in the container instead of "/root", so it never
+  // shows up in the terminal's cwd.
+  const fileName = rawFileName.startsWith("/")
+    ? rawFileName
+    : `/root/${rawFileName}`;
+            // "gedit foo.c" was already echoed char-by-char to the
+            // container's shell, but it hasn't pressed Enter yet.
+            // Send Ctrl+U to clear that pending line inside the shell,
+            // instead of sending the \r (which would try to actually
+            // run a nonexistent `gedit` binary in the container).
+            socket.emit("terminal:input", "\u0015");
+            term.write("\r\n");
+            onOpenEditor(fileName);
+            lineBufferRef.current = "";
+            continue; // don't forward this \r
+          }
+
+          lineBufferRef.current = "";
+        } else if (ch === "\u007f" || ch === "\b") {
+          // backspace
+          lineBufferRef.current = lineBufferRef.current.slice(0, -1);
+        } else if (ch === "\u0003") {
+          // Ctrl+C — reset our tracked line too
+          lineBufferRef.current = "";
+        } else if (ch >= " " || ch === "\t") {
+          lineBufferRef.current += ch;
+        }
+
+        socket.emit("terminal:input", ch);
       }
+    });
+
+    socket.on("terminal:output", (data: string) => {
+      term.write(data);
+    });
+
+    const handleResize = () => {
+      fitAddon.fit();
+      // Get the actual dimensions after fitting and send to backend
+      const { cols, rows } = term;
+      setDimensions({ cols, rows });
+      socket.emit("terminal:resize", { cols, rows });
+    };
+    window.addEventListener("resize", handleResize);
+
+    // Show confirmation dialog when user tries to close the tab/window/navigate away
+    // This warns them that the container will be destroyed
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const message =
+        "⚠️ Your SandShell terminal session will be closed and the container will be destroyed. Are you sure you want to exit?";
+      e.preventDefault();
+      e.returnValue = message;
+      return message;
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      // Clean up window resize listener
+      window.removeEventListener("resize", handleResize);
+      
+      // Clean up beforeunload listener (confirmation dialog)
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      
+      // Properly disconnect socket (triggers disconnect event on backend)
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        console.log("[cleanup] socket disconnected");
+      }
+      
+      // Dispose xterm.js terminal
+      if (xtermRef.current) {
+        xtermRef.current.dispose();
+      }
+      
+      // Clear refs
+      xtermRef.current = null;
+      socketRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (active && fitAddonRef.current) {
+      fitAddonRef.current.fit();
+      xtermRef.current?.focus();
     }
-  }
+  }, [active]);
 
   return (
-    <div
-      className={cn(
-        "relative mx-auto w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl shadow-black/30 transition-opacity duration-300",
-        !active && "opacity-60"
-      )}
-      onClick={() => active && inputRef.current?.focus()}
-    >
-      <div className="flex items-center gap-2 border-b border-border bg-bg px-4 py-3">
-        <span className="h-2.5 w-2.5 rounded-full bg-danger" />
-        <span className="h-2.5 w-2.5 rounded-full bg-[#E8A33D]" />
-        <span className="h-2.5 w-2.5 rounded-full bg-accent-green" />
-        <span className="ml-2 flex items-center gap-1.5 font-mono text-[11px] text-muted">
-          <SquareTerminal size={12} />
-          guest@sandshell — 80x24
+    <div className="w-full max-w-3xl overflow-hidden rounded-xl border border-border bg-[#0a0a0f] shadow-lg">
+      {/* Title bar */}
+      <div className="flex items-center gap-2 border-b border-border bg-[#111116] px-4 py-3">
+        <span className="h-3 w-3 rounded-full bg-red-500" />
+        <span className="h-3 w-3 rounded-full bg-yellow-500" />
+        <span className="h-3 w-3 rounded-full bg-green-500" />
+        <span className="ml-3 font-mono text-xs text-muted">
+          ubuntu@sandshell — {dimensions.cols}x{dimensions.rows}
         </span>
       </div>
 
-      <div
-        ref={scrollRef}
-        className="h-72 overflow-y-auto px-5 py-4 font-mono text-[13px] leading-6"
-      >
-        {lines.map((line) =>
-          line.type === "input" ? (
-            <div key={line.id} className="text-text">
-              <span className="text-accent-green">{PROMPT}</span> {line.text}
-            </div>
-          ) : (
-            <div key={line.id} className="whitespace-pre-wrap text-muted">
-              {line.text}
-            </div>
-          )
-        )}
-
-        <div className="flex items-center text-text">
-          <span className="text-accent-green">{PROMPT}</span>
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={!active}
-            autoComplete="off"
-            spellCheck={false}
-            aria-label="Terminal input"
-            className="ml-2 flex-1 bg-transparent font-mono text-[13px] text-text outline-none placeholder:text-muted disabled:cursor-not-allowed"
-            placeholder={active ? "" : "start a session to use the terminal"}
-          />
-        </div>
-      </div>
-
-      {!active && (
-        <div className="pointer-events-none absolute inset-0 flex items-end justify-center bg-bg/10 pb-4">
-          <span className="rounded-full border border-border bg-card px-3 py-1 font-mono text-[11px] text-muted shadow-lg">
-            Start a session to use the terminal
-          </span>
-        </div>
-      )}
+      {/* Terminal body */}
+      <div ref={containerRef} className="h-[400px] w-full p-3" />
     </div>
   );
 }
