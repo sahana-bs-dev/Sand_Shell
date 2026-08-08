@@ -5,10 +5,16 @@ import { randomUUID } from 'crypto';
 
 export async function POST() {
   try {
-    const container = await docker.createContainer({
+     const container = await docker.createContainer({
       Image: 'sandshell-ubuntu',
       Tty: true,
       Cmd: ['tail', '-f', '/dev/null'], // keeps container alive, idle
+      HostConfig: {
+        Memory: 512 * 1024 * 1024, // 512 MB RAM cap per session
+        MemorySwap: 512 * 1024 * 1024, // same as Memory — disables swap
+        NanoCpus: 1_000_000_000, // 1 CPU core cap per session
+        PidsLimit: 100, // guards against fork bombs / runaway processes
+      },
     });
 
     await container.start();
