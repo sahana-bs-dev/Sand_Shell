@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       Cmd: ["cat", filePath],
       AttachStdout: true,
       AttachStderr: true,
-      Tty: true,   // ADDED — avoids the stdout/stderr multiplex-framing bug
+      Tty: true,
     });
 
     const stream = await exec.start({ stdin: false, hijack: true });
