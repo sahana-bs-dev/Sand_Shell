@@ -38,30 +38,29 @@ export default function SessionPage() {
     setActiveView("terminal");
   }, [sessionId]);
 
-  // Opens a file in a new tab, or switches to it if it's already open.
+ // Opens a file in a new tab, or switches to it if it's already open.
+  //
+  // Everything that decides "does this file already have a tab?" happens
+  // inside the setTabs updater, reading only `prev` — React guarantees
+  // `prev` is the true current state, even though this whole function is
+  // a stale closure from Terminal's point of view (Terminal's socket
+  // effect captures onOpenEditor once on mount and never refreshes it,
+  // so the outer `tabs` variable it sees is frozen at mount-time). Also
+  // using fileName itself as the tab id (filenames are already unique)
+  // instead of crypto.randomUUID(), so there's nothing random or
+  // side-effecting inside the updater.
   const openTab = (fileName: string, content: string) => {
-    const existing = tabs.find((t) => t.fileName === fileName);
+    setTabs((prev) => {
+      const existing = prev.find((t) => t.fileName === fileName);
+      if (existing) {
+        return prev.map((t) =>
+          t.fileName === fileName ? { ...t, content, isDirty: false } : t
+        );
+      }
+      return [...prev, { id: fileName, fileName, content, isDirty: false }];
+    });
 
-    if (existing) {
-      // Re-running gedit on an already-open file: just refresh its
-      // content and bring it to the front — don't create a new tab.
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.id === existing.id ? { ...t, content, isDirty: false } : t
-        )
-      );
-      setActiveTabId(existing.id);
-    } else {
-      const newTab: EditorTab = {
-        id: crypto.randomUUID(),
-        fileName,
-        content,
-        isDirty: false,
-      };
-      setTabs((prev) => [...prev, newTab]);
-      setActiveTabId(newTab.id);
-    }
-
+    setActiveTabId(fileName);
     setActiveView("editor");
   };
   // Called by Terminal when the user types `gedit programname.c`
